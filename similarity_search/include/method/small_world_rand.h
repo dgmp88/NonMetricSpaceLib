@@ -48,12 +48,12 @@ class Space;
 
 /*
  *
- * A small world approach. It builds the knn-graph incrementally and relies on 
- * a straightforward randomized algorithm to insert an element. 
- * 
- * The main publication is as follows, but the basic algorithm was also presented as SISAP'12: 
- *    Malkov, Y., Ponomarenko, A., Logvinov, A., & Krylov, V., 2014. 
- *    Approximate nearest neighbor algorithm based on navigable small world graphs. Information Systems, 45, 61-68. 
+ * A small world approach. It builds the knn-graph incrementally and relies on
+ * a straightforward randomized algorithm to insert an element.
+ *
+ * The main publication is as follows, but the basic algorithm was also presented as SISAP'12:
+ *    Malkov, Y., Ponomarenko, A., Logvinov, A., & Krylov, V., 2014.
+ *    Approximate nearest neighbor algorithm based on navigable small world graphs. Information Systems, 45, 61-68.
  *
  */
 
@@ -68,7 +68,7 @@ public:
   void removeAllFriends(){
     friends.clear();
   }
-  /* 
+  /*
    * 1. The list of friend pointers is sorted.
    * 2. addFriend checks for duplicates using binary searching
    */
@@ -84,7 +84,7 @@ public:
     return data_;
   }
   size_t getId() const { return id_; }
-  /* 
+  /*
    * THIS NOTE APPLIES ONLY TO THE INDEXING PHASE:
    *
    * Before getting access to the friends,
@@ -169,10 +169,10 @@ public:
   MSWNode* getRandomEntryPoint() const;
   MSWNode* getRandomEntryPointLocked() const;
   size_t getEntryQtyLocked() const;
-   
-  void kSearchElementsWithAttempts(const Space<dist_t>* space, 
-                                   const Object* queryObj, size_t NN, 
-                                   size_t initAttempts, 
+
+  void kSearchElementsWithAttempts(const Space<dist_t>* space,
+                                   const Object* queryObj, size_t NN,
+                                   size_t initAttempts,
                                    std::priority_queue<EvaluatedMSWNodeDirect<dist_t>>& resultSet) const;
   void add(const Space<dist_t>* space, MSWNode *newElement);
   void addCriticalSection(MSWNode *newElement);
@@ -191,6 +191,9 @@ private:
   size_t                initIndexAttempts_;
   size_t                initSearchAttempts_;
   size_t                indexThreadQty_;
+  string                graphFileName_;
+  bool                  saveGraphFile_;
+  bool                  loadGraphFile_;
   const ObjectVector&   data_;
 
   mutable mutex   ElListGuard_;

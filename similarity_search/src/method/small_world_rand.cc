@@ -16,6 +16,7 @@
 #include <cmath>
 #include <memory>
 #include <iostream>
+#include <fstream>
 
 #include "space.h"
 #include "knnquery.h"
@@ -47,19 +48,19 @@ struct IndexThreadParamsSW {
   ProgressDisplay*                            progress_bar_;
   mutex&                                      display_mutex_;
   size_t                                      progress_update_qty_;
-  
+
   IndexThreadParamsSW(
                      const Space<dist_t>*             space,
-                     SmallWorldRand<dist_t>&          index, 
+                     SmallWorldRand<dist_t>&          index,
                      const ObjectVector&              data,
                      size_t                           index_every,
                      size_t                           out_of,
                      ProgressDisplay*                 progress_bar,
                      mutex&                           display_mutex,
                      size_t                           progress_update_qty
-                      ) : 
+                      ) :
                      space_(space),
-                     index_(index), 
+                     index_(index),
                      data_(data),
                      index_every_(index_every),
                      out_of_(out_of),
@@ -73,8 +74,8 @@ template <typename dist_t>
 struct IndexThreadSW {
   void operator()(IndexThreadParamsSW<dist_t>& prm) {
     ProgressDisplay*  progress_bar = prm.progress_bar_;
-    mutex&            display_mutex(prm.display_mutex_); 
-    /* 
+    mutex&            display_mutex(prm.display_mutex_);
+    /*
      * Skip the first element, it was added already
      */
     size_t nextQty = prm.progress_update_qty_;
@@ -82,7 +83,7 @@ struct IndexThreadSW {
       if (prm.index_every_ == id % prm.out_of_) {
         MSWNode* node = new MSWNode(prm.data_[id], id);
         prm.index_.add(prm.space_, node);
-      
+
         if ((id + 1 >= min(prm.data_.size(), nextQty)) && progress_bar) {
           unique_lock<mutex> lock(display_mutex);
           (*progress_bar) += (nextQty - progress_bar->count());
@@ -118,57 +119,113 @@ SmallWorldRand<dist_t>::SmallWorldRand(bool PrintProgress,
   pmgr.GetParamOptional("initIndexAttempts",  initIndexAttempts_);
   pmgr.GetParamOptional("initSearchAttempts", initSearchAttempts_);
   pmgr.GetParamOptional("indexThreadQty",     indexThreadQty_);
+  pmgr.GetParamOptional("graphFileName",     graphFileName_);
+  pmgr.GetParamOptional("saveGraphFile",     saveGraphFile_);
+  pmgr.GetParamOptional("loadGraphFile",     loadGraphFile_);
 
-  LOG(LIB_INFO) << "NN                  = " << NN_;
-  LOG(LIB_INFO) << "initIndexAttempts   = " << initIndexAttempts_;
-  LOG(LIB_INFO) << "initSearchAttempts  = " << initSearchAttempts_;
-  LOG(LIB_INFO) << "indexThreadQty      = " << indexThreadQty_;
+  // LOG(LIB_INFO) << "NN                  = " << NN_;
+  // LOG(LIB_INFO) << "initIndexAttempts   = " << initIndexAttempts_;
+  // LOG(LIB_INFO) << "initSearchAttempts  = " << initSearchAttempts_;
+  // LOG(LIB_INFO) << "indexThreadQty      = " << indexThreadQty_;
 
   if (data.empty()) return;
 
-  // 2) One entry should be added before all the threads are started, or else add() will not work properly
-  addCriticalSection(new MSWNode(data[0], 0 /* id == 0 */));
 
-  unique_ptr<ProgressDisplay> progress_bar(PrintProgress ?
-                                new ProgressDisplay(data.size(), cerr)
-                                :NULL);
 
-  if (indexThreadQty_ <= 1) {
-    // Skip the first element, one element is already added
-    if (progress_bar) ++(*progress_bar);
-    for (size_t id = 1; id < data.size(); ++id) {
-      MSWNode* node = new MSWNode(data[id], id);
-      add(space, node);
-      if (progress_bar) ++(*progress_bar);
+  if (loadGraphFile_) {
+    // Add all the nodes
+    for (size_t id = 0; id < data.size(); ++id) {
+      addCriticalSection( new MSWNode(data[id], id));
+    }
+
+    // Open up the file
+    ifstream myfile (graphFileName_);
+
+    // Read in each line, 1 by 1
+    if (myfile.is_open())
+    {
+      string line;
+      while ( getline (myfile,line) )
+      {
+        int id = -1;
+
+        istringstream ss( line );
+        while (ss)
+        {
+          string s;
+          if (!getline( ss, s, ',' )) break;
+          int value = atoi(s.c_str());
+
+          if (id == -1) {// id is the first entry in the file
+            id = value;
+          } else { // Everything else is a friend
+            ElList_[id]->addFriend(ElList_[value]);
+          }
+        }
+      }
+      myfile.close();
     }
   } else {
-    vector<thread>                                    threads(indexThreadQty_);
-    vector<shared_ptr<IndexThreadParamsSW<dist_t>>>   threadParams; 
-    mutex                                             progressBarMutex;
+    // 2) One entry should be added before all the threads are started, or else add() will not work properly
+    addCriticalSection(new MSWNode(data[0], 0 /* id == 0 */));
 
-    for (size_t i = 0; i < indexThreadQty_; ++i) {
-      threadParams.push_back(shared_ptr<IndexThreadParamsSW<dist_t>>(
-                              new IndexThreadParamsSW<dist_t>(space, *this, data, i, indexThreadQty_,
-                                                              progress_bar.get(), progressBarMutex, 200)));
+    unique_ptr<ProgressDisplay> progress_bar(PrintProgress ?
+                                  new ProgressDisplay(data.size(), cerr)
+                                  :NULL);
+
+    if (indexThreadQty_ <= 1) {
+      // Skip the first element, one element is already added
+      if (progress_bar) ++(*progress_bar);
+      for (size_t id = 1; id < data.size(); ++id) {
+        MSWNode* node = new MSWNode(data[id], id);
+        add(space, node);
+        if (progress_bar) ++(*progress_bar);
+      }
+    } else {
+      vector<thread>                                    threads(indexThreadQty_);
+      vector<shared_ptr<IndexThreadParamsSW<dist_t>>>   threadParams;
+      mutex                                             progressBarMutex;
+
+      for (size_t i = 0; i < indexThreadQty_; ++i) {
+        threadParams.push_back(shared_ptr<IndexThreadParamsSW<dist_t>>(
+                                new IndexThreadParamsSW<dist_t>(space, *this, data, i, indexThreadQty_,
+                                                                progress_bar.get(), progressBarMutex, 200)));
+      }
+      for (size_t i = 0; i < indexThreadQty_; ++i) {
+        threads[i] = thread(IndexThreadSW<dist_t>(), ref(*threadParams[i]));
+      }
+      for (size_t i = 0; i < indexThreadQty_; ++i) {
+        threads[i].join();
+      }
+      if (ElList_.size() != data_.size()) {
+        stringstream err;
+        err << "Bug: ElList_.size() (" << ElList_.size() << ") isn't equal to data_.size() (" << data_.size() << ")";
+        LOG(LIB_INFO) << err.str();
+        throw runtime_error(err.str());
+      }
+      LOG(LIB_INFO) << indexThreadQty_ << " indexing threads have finished";
     }
-    for (size_t i = 0; i < indexThreadQty_; ++i) {
-      threads[i] = thread(IndexThreadSW<dist_t>(), ref(*threadParams[i]));
+  }
+
+  if (saveGraphFile_) {
+    ofstream afile (graphFileName_, ios::out);
+    if(afile.is_open()) {
+      for (int node = 0; node < ElList_.size(); node ++) {
+        afile << node << ",";
+
+        const vector<MSWNode*>& neighbor = ElList_[node]->getAllFriends();
+        for (auto iter = neighbor.begin(); iter != neighbor.end(); ++iter){
+          afile << (*iter)->getId() << ",";
+        }
+        afile << "\n";
+      }
+      afile.close();
     }
-    for (size_t i = 0; i < indexThreadQty_; ++i) {
-      threads[i].join();
-    }
-    if (ElList_.size() != data_.size()) {
-      stringstream err;
-      err << "Bug: ElList_.size() (" << ElList_.size() << ") isn't equal to data_.size() (" << data_.size() << ")";
-      LOG(LIB_INFO) << err.str();
-      throw runtime_error(err.str());
-    }
-    LOG(LIB_INFO) << indexThreadQty_ << " indexing threads have finished";
   }
 }
 
 template <typename dist_t>
-void 
+void
 SmallWorldRand<dist_t>::SetQueryTimeParamsInternal(AnyParamManager& pmgr) {
   pmgr.GetParamOptional("initSearchAttempts", initSearchAttempts_);
 }
@@ -219,16 +276,16 @@ MSWNode* SmallWorldRand<dist_t>::getRandomEntryPoint() const {
 }
 
 template <typename dist_t>
-void 
-SmallWorldRand<dist_t>::kSearchElementsWithAttempts(const Space<dist_t>* space, 
-                                                    const Object* queryObj, 
-                                                    size_t NN, 
+void
+SmallWorldRand<dist_t>::kSearchElementsWithAttempts(const Space<dist_t>* space,
+                                                    const Object* queryObj,
+                                                    size_t NN,
                                                     size_t initIndexAttempts,
                                                     priority_queue<EvaluatedMSWNodeDirect<dist_t>>& resultSet) const
 {
 #if USE_BITSET_FOR_INDEXING
 /*
- * The trick of using large dense bitsets instead of unordered_set was 
+ * The trick of using large dense bitsets instead of unordered_set was
  * borrowed from Wei Dong's kgraph: https://github.com/aaalgo/kgraph
  *
  * This trick works really well even in a multi-threaded mode. Indeed, the amount
@@ -248,8 +305,8 @@ SmallWorldRand<dist_t>::kSearchElementsWithAttempts(const Space<dist_t>* space,
      */
     MSWNode* provider = getRandomEntryPointLocked();
 
-    priority_queue <dist_t>                     closestDistQueue;                      
-    priority_queue <EvaluatedMSWNodeReverse<dist_t>>   candidateSet; 
+    priority_queue <dist_t>                     closestDistQueue;
+    priority_queue <EvaluatedMSWNodeReverse<dist_t>>   candidateSet;
 
     dist_t d = space->IndexTimeDistance(queryObj, provider->getData());
     EvaluatedMSWNodeReverse<dist_t> ev(d, provider);
@@ -260,7 +317,7 @@ SmallWorldRand<dist_t>::kSearchElementsWithAttempts(const Space<dist_t>* space,
     if (closestDistQueue.size() > NN) {
       closestDistQueue.pop();
     }
- 
+
 #if USE_BITSET_FOR_INDEXING
     size_t nodeId = provider->getId();
     if (nodeId >= data_.size()) {
@@ -274,10 +331,10 @@ SmallWorldRand<dist_t>::kSearchElementsWithAttempts(const Space<dist_t>* space,
     visited.insert(provider);
 #endif
     resultSet.emplace(d, provider);
-        
+
     if (resultSet.size() > NN) { // TODO check somewhere that NN > 0
       resultSet.pop();
-    }        
+    }
 
     while (!candidateSet.empty()) {
       const EvaluatedMSWNodeReverse<dist_t>& currEv = candidateSet.top();
@@ -342,7 +399,7 @@ SmallWorldRand<dist_t>::kSearchElementsWithAttempts(const Space<dist_t>* space,
 
 template <typename dist_t>
 void SmallWorldRand<dist_t>::add(const Space<dist_t>* space, MSWNode *newElement){
-  newElement->removeAllFriends(); 
+  newElement->removeAllFriends();
 
   bool isEmpty = false;
 
@@ -389,7 +446,7 @@ void SmallWorldRand<dist_t>::Search(RangeQuery<dist_t>* query) {
 template <typename dist_t>
 void SmallWorldRand<dist_t>::Search(KNNQuery<dist_t>* query) {
 /*
- * The trick of using large dense bitsets instead of unordered_set was 
+ * The trick of using large dense bitsets instead of unordered_set was
  * borrowed from Wei Dong's kgraph: https://github.com/aaalgo/kgraph
  *
  * This trick works really well even in a multi-threaded mode. Indeed, the amount
@@ -424,13 +481,13 @@ void SmallWorldRand<dist_t>::Search(KNNQuery<dist_t>* query) {
       LOG(LIB_INFO) << err.str();
       throw runtime_error(err.str());
     }
-    visitedBitset[nodeId] = true; 
+    visitedBitset[nodeId] = true;
 
     while(!candidateQueue.empty()){
 
       auto iter = candidateQueue.top(); // This one was already compared to the query
       const EvaluatedMSWNodeReverse<dist_t>& currEv = iter;
- 
+
       dist_t lowerBound = closestDistQueue.top();
 
       // Did we reach a local minimum?
@@ -456,11 +513,11 @@ void SmallWorldRand<dist_t>::Search(KNNQuery<dist_t>* query) {
         if (!visitedBitset[nodeId]) {
           currObj = (*iter)->getData();
           d = query->DistanceObjLeft(currObj);
-            
+
           visitedBitset[nodeId] = true;
           closestDistQueue.emplace(d);
-          if (closestDistQueue.size() > NN_) { 
-            closestDistQueue.pop(); 
+          if (closestDistQueue.size() > NN_) {
+            closestDistQueue.pop();
           }
           candidateQueue.emplace(d, *iter);
           query->CheckAndAddToResult(d, currObj);
