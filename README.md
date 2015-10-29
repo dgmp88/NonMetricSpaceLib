@@ -1,3 +1,7 @@
+Small changes to the main branch that allow saving/loading a Small World Graph from the python bindings.
+
+
+
 Non-Metric Space Library (NMSLIB)
 =================
 Non-Metric Space Library is a cross-platform similarity search library and a toolkit for evaluation of similarity search methods.
