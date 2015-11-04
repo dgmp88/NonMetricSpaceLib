@@ -29,7 +29,7 @@
 #include <map>
 #include <sstream>
 #include <typeinfo>
-
+#include <unistd.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -128,27 +128,22 @@ SmallWorldRand<dist_t>::SmallWorldRand(bool PrintProgress,
   // LOG(LIB_INFO) << "initSearchAttempts  = " << initSearchAttempts_;
   // LOG(LIB_INFO) << "indexThreadQty      = " << indexThreadQty_;
 
-  if (data.empty()) return;
-
-
-
   if (loadGraphFile_) {
+
     // Add all the nodes
     for (size_t id = 0; id < data.size(); ++id) {
       addCriticalSection( new MSWNode(data[id], id));
     }
-
     // Open up the file
     ifstream myfile (graphFileName_);
 
-    // Read in each line, 1 by 1
     if (myfile.is_open())
     {
       string line;
       while ( getline (myfile,line) )
       {
         int id = -1;
-
+        MSWNode* node;
         istringstream ss( line );
         while (ss)
         {
@@ -158,8 +153,9 @@ SmallWorldRand<dist_t>::SmallWorldRand(bool PrintProgress,
 
           if (id == -1) {// id is the first entry in the file
             id = value;
+            node = ElList_[id];
           } else { // Everything else is a friend
-            ElList_[id]->addFriend(ElList_[value]);
+            node->addFriendInPlace(ElList_[value]);
           }
         }
       }
@@ -203,17 +199,52 @@ SmallWorldRand<dist_t>::SmallWorldRand(bool PrintProgress,
         LOG(LIB_INFO) << err.str();
         throw runtime_error(err.str());
       }
+
       LOG(LIB_INFO) << indexThreadQty_ << " indexing threads have finished";
+
     }
   }
 
+
+  // Print out some simple stats
+  int min = 10000, max = 0;
+  float mean = 0;
+  for (int i = 0; i < ElList_.size(); i ++) {
+    int n = ElList_[i]->getAllFriends().size();
+
+    if (min > n) {
+      min = n;
+    }
+
+    if (max < n) {
+      max = n;
+    }
+
+    mean += n;
+  }
+
+  mean /= ElList_.size();
+
+  cout << "Min: " << min << " max: " << max << " mean: " << mean << " n: " << ElList_.size() << endl;
+
   if (saveGraphFile_) {
+    cout << "WRiting" << endl;
+
     ofstream afile (graphFileName_, ios::out);
     if(afile.is_open()) {
       for (int node = 0; node < ElList_.size(); node ++) {
-        afile << node << ",";
+        unique_lock<mutex> lock1(ElListGuard_);
+        MSWNode* currNode = ElList_[node];
+        afile << currNode->getId() << ",";
 
-        const vector<MSWNode*>& neighbor = ElList_[node]->getAllFriends();
+        /*
+         * This lock protects currNode from being modified
+         * while we are accessing elements of currNode.
+         */
+        unique_lock<mutex>  lock2(currNode->accessGuard_);
+
+        const vector<MSWNode*>& neighbor = currNode->getAllFriends();
+
         for (auto iter = neighbor.begin(); iter != neighbor.end(); ++iter){
           afile << (*iter)->getId() << ",";
         }
@@ -441,7 +472,6 @@ template <typename dist_t>
 void SmallWorldRand<dist_t>::Search(RangeQuery<dist_t>* query) {
   throw runtime_error("Range search is not supported!");
 }
-
 
 template <typename dist_t>
 void SmallWorldRand<dist_t>::Search(KNNQuery<dist_t>* query) {

@@ -80,6 +80,14 @@ public:
       friends.insert(it, element);
     }
   }
+  /*
+   * 1. The list of friend pointers is sorted.
+   * 2. addFriend checks for duplicates using binary searching
+   */
+  void addFriendInPlace(MSWNode* element) {
+    friends.push_back(element);
+  }
+
   const Object* getData() const {
     return data_;
   }

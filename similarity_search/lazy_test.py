@@ -3,7 +3,7 @@ import time
 
 
 
-def test_method(method, k = 10, tests=100):
+def test_method(method, k = 10, tests=5):
     from sklearn.neighbors import NearestNeighbors
     t0 = time.time()
     nn = NearestNeighbors(leaf_size=data.shape[0]).fit(data)
@@ -44,7 +44,7 @@ def test_save_and_load(data, init_nn=3, init_index=3, init_search=3):
     method_param = ['NN=%d'%init_nn,
                     'initIndexAttempts=%d'%init_index,
                     'initSearchAttempts=%d'%init_search,
-                    'indexThreadQty=1',
+                    'indexThreadQty=4',
                     'graphFileName=savedGraph.txt',
                     'saveGraphFile=1',
                     'loadGraphFile=0']
@@ -102,6 +102,6 @@ if __name__ == '__main__':
     import sys
 
     np.random.seed(0)
-    data = np.random.rand(50000,100)
+    data = np.random.rand(5000,100)
 
-    test_save_and_load(data, init_nn=20, init_search=3, init_index=3)
+    test_save_and_load(data, init_nn=5, init_search=3, init_index=3)
